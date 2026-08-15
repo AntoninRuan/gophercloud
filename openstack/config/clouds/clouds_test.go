@@ -335,4 +335,175 @@ func TestParse(t *testing.T) {
 			t.Errorf("unexpected identity endpoint: %q", got)
 		}
 	})
+
+	t.Run("parses clouds-public.yaml if present", func(t *testing.T) {
+		const cloudsYAML = `clouds:
+  gophercloud-test-0:
+    cloud: gophercloud-test-1
+    auth:
+      user_domain_name: CustomDomain`
+		const cloudsPublicYAML = `public-clouds:
+  gophercloud-test-1:
+    auth:
+      auth_url: https://example.com/gophercloud-test-1:13000
+      user_domain_name: Default`
+
+		tmpDir, err := os.MkdirTemp(os.TempDir(), tempDirPrefix)
+		if err != nil {
+			t.Fatalf("unable to create a temporary directory: %v", err)
+		}
+		defer rmTmpDirOrPanic(tmpDir)
+
+		cwd, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("unable to determine the current working directory: %v", err)
+		}
+		if err := os.Chdir(tmpDir); err != nil {
+			t.Fatalf("unable to move to a temporary directory: %v", err)
+		}
+		defer func() {
+			if err := os.Chdir(cwd); err != nil {
+				panic("unable to reset the current working directory: " + err.Error())
+			}
+		}()
+
+		if err := os.WriteFile("clouds-public.yaml", []byte(cloudsPublicYAML), 0644); err != nil {
+			t.Fatalf("unable to create a mock clouds-public.yaml file: %v", err)
+		}
+
+		ao, _, _, err := clouds.Parse(
+			clouds.WithCloudsYAML(strings.NewReader(cloudsYAML)),
+			clouds.WithCloudName("gophercloud-test-0"),
+		)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if got := ao.IdentityEndpoint; got != "https://example.com/gophercloud-test-1:13000" {
+			t.Errorf("unexpected identity endpoint: %q", got)
+		}
+
+		if got := ao.DomainName; got != "CustomDomain" {
+			t.Errorf("unexpected DomainName: %q", got)
+		}
+	})
+	t.Run("parses clouds-public.yaml locations in order", func(t *testing.T) {
+		const cloudsYAML = `clouds:
+  gophercloud-test-0:
+    cloud: gophercloud-test-1
+    auth:
+      user_domain_name: CustomDomain`
+		const cloudsPublicYAML1 = `public-clouds:
+  gophercloud-test-1:
+    auth:
+      auth_url: https://example.com/gophercloud-test-1:13000
+      user_domain_name: Default`
+		const cloudsPublicYAML2 = `public-clouds:
+  gophercloud-test-1:
+    auth:
+      auth_url: https://example.com/gophercloud-test-2:13000
+      user_domain_name: Default`
+
+		tmpDir1, err := os.MkdirTemp(os.TempDir(), tempDirPrefix)
+		if err != nil {
+			t.Fatalf("unable to create a temporary directory: %v", err)
+		}
+		defer rmTmpDirOrPanic(tmpDir1)
+
+		tmpDir2, err := os.MkdirTemp(os.TempDir(), tempDirPrefix)
+		if err != nil {
+			t.Fatalf("unable to create a temporary directory: %v", err)
+		}
+		defer rmTmpDirOrPanic(tmpDir2)
+
+		publicPath1 := path.Join(tmpDir1, "clouds-public.yaml")
+		publicPath2 := path.Join(tmpDir2, "clouds-public.yaml")
+
+		if err := os.WriteFile(publicPath1, []byte(cloudsPublicYAML1), 0644); err != nil {
+			t.Fatalf("unable to create a mock clouds-public.yaml file in path %q: %v", publicPath1, err)
+		}
+		if err := os.WriteFile(publicPath2, []byte(cloudsPublicYAML2), 0644); err != nil {
+			t.Fatalf("unable to create a mock clouds-public.yaml file in path %q: %v", publicPath2, err)
+		}
+
+		ao, _, _, err := clouds.Parse(
+			clouds.WithCloudsYAML(strings.NewReader(cloudsYAML)),
+			clouds.WithCloudName("gophercloud-test-0"),
+			clouds.WithPublicLocations(publicPath1, publicPath2),
+		)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if got := ao.IdentityEndpoint; got != "https://example.com/gophercloud-test-1:13000" {
+			t.Errorf("unexpected identity endpoint: %q", got)
+		}
+
+		if got := ao.DomainName; got != "CustomDomain" {
+			t.Errorf("unexpected DomainName: %q", got)
+		}
+	})
+	t.Run("fall back to next location if clouds-public.yaml is not found", func(t *testing.T) {
+		const cloudsYAML = `clouds:
+  gophercloud-test-0:
+    cloud: gophercloud-test-1
+    auth:
+      user_domain_name: CustomDomain`
+		const cloudsPublicYAML1 = `public-clouds:
+  gophercloud-test-1:
+    auth:
+      auth_url: https://example.com/gophercloud-test-1:13000
+      user_domain_name: Default`
+		const cloudsPublicYAML2 = `public-clouds:
+  gophercloud-test-1:
+    auth:
+      auth_url: https://example.com/gophercloud-test-2:13000
+      user_domain_name: Default`
+
+		tmpDir0, err := os.MkdirTemp(os.TempDir(), tempDirPrefix)
+		if err != nil {
+			t.Fatalf("unable to create a temporary directory: %v", err)
+		}
+		defer rmTmpDirOrPanic(tmpDir0)
+
+		tmpDir1, err := os.MkdirTemp(os.TempDir(), tempDirPrefix)
+		if err != nil {
+			t.Fatalf("unable to create a temporary directory: %v", err)
+		}
+		defer rmTmpDirOrPanic(tmpDir1)
+
+		tmpDir2, err := os.MkdirTemp(os.TempDir(), tempDirPrefix)
+		if err != nil {
+			t.Fatalf("unable to create a temporary directory: %v", err)
+		}
+		defer rmTmpDirOrPanic(tmpDir2)
+
+		publicPath0 := path.Join(tmpDir0, "clouds-public.yaml")
+		publicPath1 := path.Join(tmpDir1, "clouds-public.yaml")
+		publicPath2 := path.Join(tmpDir2, "clouds-public.yaml")
+
+		if err := os.WriteFile(publicPath1, []byte(cloudsPublicYAML1), 0644); err != nil {
+			t.Fatalf("unable to create a mock clouds-public.yaml file in path %q: %v", publicPath1, err)
+		}
+		if err := os.WriteFile(publicPath2, []byte(cloudsPublicYAML2), 0644); err != nil {
+			t.Fatalf("unable to create a mock clouds-public.yaml file in path %q: %v", publicPath2, err)
+		}
+
+		ao, _, _, err := clouds.Parse(
+			clouds.WithCloudsYAML(strings.NewReader(cloudsYAML)),
+			clouds.WithCloudName("gophercloud-test-0"),
+			clouds.WithPublicLocations(publicPath0, publicPath1, publicPath2),
+		)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if got := ao.IdentityEndpoint; got != "https://example.com/gophercloud-test-1:13000" {
+			t.Errorf("unexpected identity endpoint: %q", got)
+		}
+
+		if got := ao.DomainName; got != "CustomDomain" {
+			t.Errorf("unexpected DomainName: %q", got)
+		}
+	})
 }
